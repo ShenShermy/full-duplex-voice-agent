@@ -1,0 +1,56 @@
+# =============================================================================
+# requirements-gpu.txt —— 完整依赖（Windows + NVIDIA，4060 Ti 8 GB 卡调优过）
+# -----------------------------------------------------------------------------
+# 装法（不要直接 pip install -r，先看 setup/install_windows.ps1，它会按顺序处理）：
+#     python -m pip install -r requirements-core.txt
+#     python -m pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+#     python -m pip install -r requirements-gpu.txt
+#
+# 【为什么 torch 要单独一行、单独用 cu121 源】
+# PyPI 上的 torch 默认是 CPU 版（Windows 上），装完会发现 torch.cuda.is_available()
+# 是 False —— 这是新手最容易踩的坑。必须用 download.pytorch.org/whl/cu121 这个源。
+# RTX 4060 Ti 是 Ada 架构（sm_89），cu121 的 wheel 已经包含 sm_89 内核，能直接用。
+#
+# 【显存账本（8 GB）】
+#     FunASR paraformer-zh + fsmn-vad + ct-punc   ≈ 1.5 GB
+#     CosyVoice2-0.5B（fp16）                     ≈ 1.6 GB
+#     Qwen2.5-7B-Instruct 4bit（可选，本地跑）      ≈ 5.0 GB
+#     ------------------------------------------------------
+#     只做「本地 ASR+TTS + LLM 走 API」          ≈ 3.5 GB    ✅ 舒服
+#     全本地（含 7B-4bit）                       ≈ 8.5 GB    ⚠ 会 OOM，见 docs/04
+#
+# 所以默认配置是「LLM 走 API（或 llama.cpp 的 Q4_K_M，约 4.4 GB）」，
+# 这是 8 GB 卡上最稳的组合。这不是妥协，是显存预算管理 —— 面试可以讲这个取舍。
+# =============================================================================
+
+# ---- 麦克风 / 扬声器（Windows 自带 PortAudio，不需要编译）----
+sounddevice>=0.4.6
+
+# ---- ASR：阿里 FunASR（中文最强一档）+ 模型下载器 ----
+# 说明：funasr 的小版本经常变，跑不通就回退到 funasr==1.1.16
+funasr>=1.1.0
+modelscope>=1.20.0
+
+# ---- 备选 ASR：faster-whisper（英文更稳，pip 直接装）----
+faster-whisper>=1.0.3
+
+# ---- LLM 客户端（连任何 OpenAI 兼容服务；也用来连本地 vLLM/llama.cpp）----
+openai>=1.40.0
+
+# ---- 本地 LLM（可选，hf_local 后端才需要）----
+transformers>=4.44.0
+accelerate>=0.33.0
+bitsandbytes>=0.43.0
+
+# ---- TTS 后备：Windows SAPI（零下载，先让它开口）----
+pyttsx3>=2.90
+# pyttsx3 在 Windows 上还需要这两个底层包
+comtypes>=1.2.0; sys_platform == "win32"
+pypiwin32>=223; sys_platform == "win32"
+
+# ---- 音频处理小工具（写 WAV、重采样对比用）----
+soundfile>=0.12.1
+
+# ---- 注意：CosyVoice 不在这里 ----
+# 它是一个 git 仓库而非 pip 包（要 clone + 它自己的 requirements），
+# 用 setup/install_cosyvoice.ps1 单独装。

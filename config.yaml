@@ -1,0 +1,152 @@
+# =============================================================================
+# 语音 Agent 配置文件
+# -----------------------------------------------------------------------------
+# 这个文件就是整个项目的"控制面板"：所有能调的旋钮都在这里，代码里不写死数字。
+# 面试被问"参数怎么定的"，你就打开这个文件讲——这也是工程化能力的体现。
+#
+# 改完直接重跑，不用改任何 .py。
+# =============================================================================
+
+# ---------------------------------------------------------------- 运行模式
+run:
+  # mic  = 真实麦克风 + 扬声器（在笔记本上跑这个）
+  # sim  = 模拟音源（没有麦克风/没装模型也能跑，用来验证逻辑和看延迟表长什么样）
+  mode: sim
+
+  # 跑多少轮对话后自动退出（避免一直跑着）
+  max_turns: 6
+
+  # 事件日志路径（埋点写这里，之后用 tools/latency.py 出报告）
+  events_path: events.jsonl
+
+  # 退出时自动打印延迟报告
+  report_on_exit: true
+
+  # ---- 上下文（对话历史）----
+  # 语音场景和文字聊天不一样：历史越长，首 token 越慢（prompt 变长）。
+  # 所以这里做双上限：轮数 + 总字数，超了从最老的开始丢。
+  history_turns: 6            # 最多保留几轮（一问一答 = 一轮）
+  history_chars: 1200         # 历史总字数上限
+
+# ---------------------------------------------------------------- 音频
+audio:
+  sample_rate: 16000          # 全链路统一 16 kHz 单声道，这是语音模型的事实标准
+  block_ms: 20                # 每次处理 20 ms 音频（=320 采样点），越小越灵敏但越耗 CPU
+  mic_device: null            # null = 系统默认；填数字可指定（先运行 python src/main.py --list-devices）
+  speaker_device: null
+  # 真实麦克风的音量增益；录进来太小声就调到 1.5~2.0
+  mic_gain: 1.0
+  # 扬声器音量
+  speaker_volume: 1.0
+
+# ---------------------------------------------------------------- VAD（判断"有没有人在说话"）
+vad:
+  # energy = 纯音量阈值，零依赖，一定能跑（默认）
+  # silero = 神经网络 VAD，抗噪好很多，需要 pip install silero-vad
+  backend: energy
+
+  # ---- 能量 VAD 参数 ----
+  energy_threshold: 0.015     # RMS 阈值，0~1。安静房间 0.01 左右，嘈杂环境调高
+  energy_adaptive: true       # 自动跟踪环境噪声底，把阈值设成 噪声底 * 倍数
+  energy_adapt_ratio: 3.0     # 噪声底的倍数
+
+  # ---- 通用判定参数 ----
+  min_speech_ms: 160          # 连续说话多久才算"真的开始说话"（防咳嗽、键盘声误触发）
+  # 【核心】endpointing：说完了要静音多久才算说完。
+  # 调小 → 反应快但容易把停顿当说完；调大 → 稳但迟钝。
+  # 真实产品一般 400~700 ms，这里默认 500 ms。
+  silence_ms: 500
+  # 单轮最长录音，防止用户一直说不停
+  max_utterance_s: 20
+
+  # ---- 回声门控（防"自己的声音触发自己"）----
+  # 机器人播放时，麦克风会收到自己的声音 → 被当成用户插话 → 自己打断自己。
+  # 三个办法：①戴耳机（最有效）②AEC 回声消除 ③播放期间把阈值提高。
+  echo_gate:
+    enabled: true
+    threshold_ratio: 2.5      # 播放期间阈值放大 2.5 倍
+    min_speech_ratio: 2.0     # 播放期间要求连续说话时间也放大 2 倍
+
+# ---------------------------------------------------------------- 打断（barge-in）
+barge_in:
+  enabled: true
+  # 机器人说话时，用户至少要连续发声这么久才认定为"打断"（而不是杂音）
+  # 200~300 ms 是体验和误触发的平衡点
+  min_speech_ms: 240
+  # 打断后立刻停播，但已经写进声卡缓冲区的最多 ~80 ms 残音收不回来，这是物理限制
+  flush_on_interrupt: true
+
+# ---------------------------------------------------------------- ASR（语音转文字）
+asr:
+  # mock     = 假数据（sim 模式用）
+  # funasr   = 阿里 FunASR，模型走本地
+  backend: mock
+
+  # utterance = 等一句话说完再整段转写（稳，延迟 ~200 ms + 音频时长）
+  # streaming = 边说边出字（更贴 JD 的"流式"，但 FunASR 流式接口更挑版本）
+  mode: utterance
+
+  funasr:
+    model: paraformer-zh                 # 中文离线识别模型；流式用 paraformer-zh-streaming
+    vad_model: fsmn-vad                  # FunASR 自带的 VAD（本项目的 VAD 自己做了，这里可留空）
+    punc_model: ct-punc                  # 自动加标点
+    device: cuda                          # cuda / cpu；显存紧张时可以改成 cpu
+    # chunk_size 只在 streaming 模式用：[0, 10, 5] 表示每块 600 ms
+    chunk_size: [0, 10, 5]
+
+# ---------------------------------------------------------------- LLM（对话大脑）
+llm:
+  # mock        = 假的流式回复（sim 模式用）
+  # openai_compat = 任何 OpenAI 兼容的 /v1/chat/completions 服务（推荐）
+  #   远程：DeepSeek / 阿里百炼 / OpenAI ...
+  #   本地：vLLM、llama.cpp server、Ollama、LM Studio 全部兼容
+  # hf_local    = 本地 transformers + 4bit（8 GB 显存的备选方案）
+  backend: mock
+
+  openai_compat:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    api_key_env: DEEPSEEK_API_KEY         # 从环境变量读 key，别写进代码
+    temperature: 0.7
+    max_tokens: 220                       # 回复越短，说完越快，打断机会越少
+    timeout_s: 30
+
+  hf_local:
+    model_path: models/Qwen2.5-7B-Instruct-AWQ
+    device: cuda
+    load_in_4bit: true                    # 4bit 量化后 ~5 GB 显存
+    max_new_tokens: 200
+
+  # system prompt 决定"人设"。机器人场景要短、要有边界，别让它长篇大论
+  system_prompt: |
+    你是一个语音机器人助手。回答要短：一到两句话，20~60 个字。
+    口语化，不要用列表和 Markdown，不要念符号。
+    用户随时可能打断你，所以你不需要把话说完整，抓住重点先说。
+
+# ---------------------------------------------------------------- TTS（文字转语音）
+tts:
+  # silent    = 不出声，只按字数估算时长（sim 模式用）
+  # pyttsx3   = Windows 自带语音（SAPI5），零配置，先让它能开口
+  # cosyvoice = 中文效果最好，需要单独安装（见 setup/install_cosyvoice.ps1）
+  backend: silent
+
+  pyttsx3:
+    rate: 190                             # 语速
+    voice_hint: huihui                    # 中文女声，找不到会自动用默认音色
+
+  cosyvoice:
+    model_path: pretrained_models/CosyVoice2-0.5B
+    device: cuda                          # 显存够就 cuda，不够改 cpu（会慢 3~5 倍）
+    voice: 中文女                          # CosyVoice 预置音色
+    stream: true                          # 流式合成：边生成边播，首帧延迟明显更低
+    speed: 1.0
+
+# ---------------------------------------------------------------- 评测
+eval:
+  # 延迟预算（ms）：报告里超过预算的指标会被标红，用来判断"够不够自然"
+  budget:
+    asr_latency: 300
+    llm_ttft: 400
+    tts_latency: 300
+    e2e_first_audio: 800
+    barge_in_stop: 250

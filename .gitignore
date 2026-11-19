@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 模型与权重（体积大，用 setup/download_models.py 下载）
+models/
+pretrained_models/
+third_party/
+
+# 运行时产物
+events.jsonl
+*.log
+*.wav
+*.mp3
+report_*.md
+
+# 本地调试残留
+_diag*
+_run*
+_cfgcheck.json
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 密钥
+.env
+*.pem
+secrets.yaml
